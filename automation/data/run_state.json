@@ -1,0 +1,20 @@
+{
+  "run_id": "de698a10-100f-440c-819c-758a3f6a0b62",
+  "state": "CHAT_CYCLE_ONE",
+  "retries": {},
+  "email": "saravasquez91@my.gsoleyfoyle.org.uk",
+  "username": "emberocean62",
+  "current_prompt": 0,
+  "preview_urls": [],
+  "last_error": null,
+  "metadata": {
+    "vpn_profile": "/mnt/vault/Downloads/vpns/us-free-26.protonvpn.udp.ovpn",
+    "vpn_user": "0yqflkJmsb5Xr6Rz",
+    "public_ip": "149.40.62.57",
+    "connected": "true",
+    "proxy": "socks5://127.0.0.1:39925",
+    "vpn_pid_file": "/tmp/openvpn_de698a10-100f-440c-819c-758a3f6a0b62.pid",
+    "proxy_pid": "95486",
+    "verify_url": "https://chat.z.ai/auth/verify_email?token=60182646-1be4-414c-b697-99543c8cc974&email=saravasquez91@my.gsoleyfoyle.org.uk&username=emberocean62&language=en"
+  }
+}

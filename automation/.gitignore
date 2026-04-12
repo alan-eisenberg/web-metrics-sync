@@ -1,0 +1,6 @@
+.env
+artifacts/logs/*.log
+artifacts/screenshots/*
+artifacts/html_dumps/*
+__pycache__/
+*.pyc
