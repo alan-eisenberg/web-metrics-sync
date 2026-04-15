@@ -2,27 +2,8 @@ name: Z.ai Automation Farm
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Run every 6 hours, adjust as needed
+    - cron: '*/30 * * * *' # Run every 30 minutes (48 times a day)
   workflow_dispatch:
-    inputs:
-      parallel_tabs:
-        description: 'Number of parallel tabs per runner'
-        required: false
-        default: '3'
-        type: string
-      cycles:
-        description: 'Number of cycles per runner'
-        required: false
-        default: '1'
-        type: string
-      github_account:
-        description: 'Which GitHub account to use for pushing?'
-        required: true
-        type: choice
-        options:
-          - account1
-          - account2
-        default: 'account1'
 
 jobs:
   automation-farm:
@@ -30,9 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Define multiple runners to execute massively in parallel to avoid OOM limits.
-        # Add more runners by adding numbers to this list (e.g. 1, 2, 3, 4, 5...)
-        runner: [1, 2, 3, 4, 5]
+        # Run 10 concurrent threads simultaneously
+        runner: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     
     steps:
       - name: Checkout main repository
@@ -41,10 +21,9 @@ jobs:
       - name: Checkout altissiabooster repository
         uses: actions/checkout@v4
         with:
-          repository: 'YOUR_ORG/altissiabooster' # IMPORTANT: Change to actual org/repo
-          path: '/mnt/vault/repos/altissiabooster' # Matches ALTISSIA_DIR default
-          # Use PAT 2 if selected manually, otherwise default to PAT 1
-          token: ${{ github.event.inputs.github_account == 'account2' && secrets.ALTISSIA_PAT_2 || secrets.ALTISSIA_PAT_1 }}
+          repository: 'alanwaivy10/altissiabooster' # Replace with actual org/repo if different
+          path: '/mnt/vault/repos/altissiabooster'
+          token: ${{ secrets.ALTISSIA_PAT_1 }} # Ensure this secret exists in your repo settings
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -55,19 +34,26 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb chromium-browser chromium-chromedriver openvpn
+          sudo apt-get install -y xvfb google-chrome-stable chromium-chromedriver openvpn curl procps jq
           pip install -r requirements.txt
 
-      - name: Run Z.ai Automation in Headful mode (Xvfb)
+      - name: Configure OpenVPN Credentials
+        run: |
+          mkdir -p /tmp
+          echo "vpn" > /tmp/dummy_auth.txt
+          echo "vpn" >> /tmp/dummy_auth.txt
+
+      - name: Run Z.ai Automation (--monos)
         env:
           ALTISSIA_DIR: '/mnt/vault/repos/altissiabooster'
-          # We dynamically pass the selected author email and name to the python script
-          GIT_USER_EMAIL: ${{ github.event.inputs.github_account == 'account2' && 'account2@example.com' || 'bot@zai-automation.local' }}
-          GIT_USER_NAME: ${{ github.event.inputs.github_account == 'account2' && 'ZAI Bot Account 2' || 'ZAI Bot Account 1' }}
-          # Add any required secrets here like OpenVPN credentials, etc.
+          OPENVPN_PROFILES_DIR: '${{ github.workspace }}/automation/data/openvpn/profiles'
+          GIT_USER_EMAIL: 'bot@zai-automation.local'
+          GIT_USER_NAME: 'ZAI Bot'
+          DISPLAY: ':99'
         run: |
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-            python -m automation.main \
-              --parallel ${{ github.event.inputs.parallel_tabs || '3' }} \
-              --cycles ${{ github.event.inputs.cycles || '1' }} \
-              --git
+          # Start Xvfb (virtual display for Chrome)
+          Xvfb :99 -screen 0 1920x1080x24 &
+          sleep 3
+          
+          # Run the orchestration script with --monos (1 tab sequentially, 3 times) and auto-git push
+          python3 automation/main.py --monos --git
