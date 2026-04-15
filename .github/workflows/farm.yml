@@ -1,0 +1,73 @@
+name: Z.ai Automation Farm
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Run every 6 hours, adjust as needed
+  workflow_dispatch:
+    inputs:
+      parallel_tabs:
+        description: 'Number of parallel tabs per runner'
+        required: false
+        default: '3'
+        type: string
+      cycles:
+        description: 'Number of cycles per runner'
+        required: false
+        default: '1'
+        type: string
+      github_account:
+        description: 'Which GitHub account to use for pushing?'
+        required: true
+        type: choice
+        options:
+          - account1
+          - account2
+        default: 'account1'
+
+jobs:
+  automation-farm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Define multiple runners to execute massively in parallel to avoid OOM limits.
+        # Add more runners by adding numbers to this list (e.g. 1, 2, 3, 4, 5...)
+        runner: [1, 2, 3, 4, 5]
+    
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+
+      - name: Checkout altissiabooster repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'YOUR_ORG/altissiabooster' # IMPORTANT: Change to actual org/repo
+          path: '/mnt/vault/repos/altissiabooster' # Matches ALTISSIA_DIR default
+          # Use PAT 2 if selected manually, otherwise default to PAT 1
+          token: ${{ github.event.inputs.github_account == 'account2' && secrets.ALTISSIA_PAT_2 || secrets.ALTISSIA_PAT_1 }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb chromium-browser chromium-chromedriver openvpn
+          pip install -r requirements.txt
+
+      - name: Run Z.ai Automation in Headful mode (Xvfb)
+        env:
+          ALTISSIA_DIR: '/mnt/vault/repos/altissiabooster'
+          # We dynamically pass the selected author email and name to the python script
+          GIT_USER_EMAIL: ${{ github.event.inputs.github_account == 'account2' && 'account2@example.com' || 'bot@zai-automation.local' }}
+          GIT_USER_NAME: ${{ github.event.inputs.github_account == 'account2' && 'ZAI Bot Account 2' || 'ZAI Bot Account 1' }}
+          # Add any required secrets here like OpenVPN credentials, etc.
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            python -m automation.main \
+              --parallel ${{ github.event.inputs.parallel_tabs || '3' }} \
+              --cycles ${{ github.event.inputs.cycles || '1' }} \
+              --git

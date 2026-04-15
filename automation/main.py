@@ -8,6 +8,7 @@ from pathlib import Path
 from automation.config import STATE_ORDER, STAGE_TO_LAST_STATE, default_settings
 from automation.logger import configure_logging, get_logger
 from automation.modules import (
+    altissia,
     auth_zai,
     chat,
     evaluator_groq,
@@ -38,10 +39,27 @@ def parse_args() -> argparse.Namespace:
         help="Do not close browser at end (placeholder flag for Selenium integration)",
     )
     parser.add_argument(
+        "--parallel",
+        type=int,
+        default=3,
+        help="Number of parallel tabs",
+    )
+    parser.add_argument(
+        "--cycles",
+        type=int,
+        default=1,
+        help="Number of generation cycles",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
         help="Seed for deterministic profile selection",
+    )
+    parser.add_argument(
+        "--git",
+        action="store_true",
+        help="Enable automated git pushing of generated links with conflict resolution",
     )
     return parser.parse_args()
 
@@ -76,6 +94,15 @@ def _touch_data_files(base_dir: Path) -> None:
 
 
 def run() -> int:
+    import subprocess
+
+    # Attempt to clear dead chrome/chromedriver instances if repeating cycles/loops massively
+    subprocess.run(
+        ["killall", "-9", "chrome", "chromedriver"],
+        stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+    )
+
     args = parse_args()
     settings = default_settings()
     _touch_data_files(settings.base_dir)
@@ -98,149 +125,524 @@ def run() -> int:
     prompt_two_result = None
     driver = None
 
-    for idx, state_name in enumerate(STATE_ORDER):
-        state.state = state_name
-        save_state(settings.run_state_path, state)
-        log.info("[%s] Enter", state_name)
+    try:
+        for idx, state_name in enumerate(STATE_ORDER):
+            state.state = state_name
+            save_state(settings.run_state_path, state)
+            log.info("[%s] Enter", state_name)
 
-        if state_name == "INIT":
-            pass
+            if state_name == "INIT":
+                pass
 
-        elif state_name == "LOAD_OPENVPN_PROFILES":
-            profiles = vpn.load_profiles(settings.openvpn_profiles_dir)
-            selected_profile = vpn.pick_profile(profiles, seed=args.seed)
-            state.metadata["vpn_profile"] = str(selected_profile)
-            log.info("Randomly selected VPN profile: %s", selected_profile.name)
+            elif state_name == "LOAD_OPENVPN_PROFILES":
+                profiles = vpn.load_profiles(settings.openvpn_profiles_dir)
+                selected_profile = vpn.pick_profile(profiles, seed=args.seed)
+                state.metadata["vpn_profile"] = str(selected_profile)
+                log.info("Randomly selected VPN profile: %s", selected_profile.name)
 
-        elif state_name == "CONNECT_OPENVPN":
-            if selected_profile is None:
-                raise RuntimeError("Profile is not selected")
-            vpn.ensure_auth_file(
-                settings.openvpn_auth_path,
-                settings.openvpn_username,
-                settings.openvpn_password,
-            )
-            conn_info = vpn.connect_vpn(
-                selected_profile, settings.openvpn_auth_path, state.run_id
-            )
-            state.metadata.update(conn_info)
-
-        elif state_name == "VERIFY_PUBLIC_IP":
-            if "public_ip" not in state.metadata:
-                raise RuntimeError("Public IP not available after VPN connect")
-
-        elif state_name == "MAIL_BOOTSTRAP":
-            from automation.browser import get_browser
-
-            if driver is None:
-                driver = get_browser(proxy_url=state.metadata.get("proxy"))
-            email = tempmail.get_temp_mail(driver)
-            username = tempmail.generate_username()
-            verify_url = tempmail.build_verify_url(settings.base_token, email, username)
-            state.email = email
-            state.username = username
-            state.metadata["verify_url"] = verify_url
-
-            auth_zai.open_verify_resend(driver, verify_url)
-
-        elif state_name == "SAVE_CREDENTIALS":
-            from automation.browser import get_browser
-
-            if not state.email or not state.username:
-                raise RuntimeError("Cannot save credentials without email/username")
-            if driver is None:
-                driver = get_browser(proxy_url=state.metadata.get("proxy"))
-            driver.get("https://cleantempmail.com")
-            # Wait for email to arrive and click verify
-            registered = auth_zai.poll_inbox_and_verify(driver, password=state.email)
-
-            entry = {
-                **registered,
-                "run_id": state.run_id,
-                "vpn_profile": state.metadata.get("vpn_profile"),
-                "public_ip": state.metadata.get("public_ip"),
-                "status": "registered",
-                "preview_urls": state.preview_urls,
-            }
-            storage.upsert_credential(settings.credentials_path, entry)
-
-        elif state_name in ("CHAT_CYCLE_ONE", "CHAT_CYCLE_TWO", "CHAT_CYCLE_THREE"):
-            from automation.browser import get_browser
-
-            if driver is None:
-                driver = get_browser(proxy_url=state.metadata.get("proxy"))
-
-            full_prompt = (settings.prompts_dir / "full_prompt.txt").read_text(
-                encoding="utf-8"
-            )
-
-            chat.ensure_agent_mode(driver, settings.js_dir)
-            current_prompt = full_prompt
-
-            for attempt in range(settings.eval_max_attempts):
-                log.info(
-                    "[%s] Attempt %d with prompt length %d",
-                    state_name,
-                    attempt + 1,
-                    len(current_prompt),
-                )
-                result = chat.run_prompt(driver, current_prompt)
-
-                extracted = extractor.extract_response(
-                    result.response_html,
-                    result.response_text,
+            elif state_name == "CONNECT_OPENVPN":
+                if selected_profile is None:
+                    raise RuntimeError("Profile is not selected")
+                vpn.ensure_auth_file(
+                    settings.openvpn_auth_path,
+                    settings.openvpn_username,
+                    settings.openvpn_password,
                 )
 
-                eval_result = evaluator_groq.evaluate_response(extracted.text)
-                if eval_result.approved:
-                    preview_url = chat.to_preview_url(result.chat_url)
-                    state.preview_urls.append(preview_url)
-                    log.info("[%s] Approved! Preview URL: %s", state_name, preview_url)
-
-                    if state.email:
-                        storage.upsert_credential(
-                            settings.credentials_path,
-                            {
-                                "email": state.email,
-                                "username": state.username,
-                                "preview_urls": state.preview_urls,
-                                "status": "completed",
-                                "run_id": state.run_id,
-                            },
+                max_retries = 5
+                connected = False
+                for attempt in range(max_retries):
+                    try:
+                        conn_info = vpn.connect_vpn(
+                            selected_profile, settings.openvpn_auth_path, state.run_id
                         )
-                    break
-                else:
-                    log.warning(
-                        "[%s] Attempt %d rejected: %s",
-                        state_name,
-                        attempt + 1,
-                        eval_result.reason,
+                        state.metadata.update(conn_info)
+                        connected = True
+                        break
+                    except vpn.VPNError as e:
+                        log.warning(
+                            "[CONNECT_OPENVPN] Attempt %d failed: %s", attempt + 1, e
+                        )
+                        if attempt < max_retries - 1:
+                            log.info(
+                                "[CONNECT_OPENVPN] Picking a new profile and retrying..."
+                            )
+                            selected_profile = vpn.pick_profile(profiles)
+                            state.metadata["vpn_profile"] = str(selected_profile)
+                            log.info(
+                                "Randomly selected NEW VPN profile: %s",
+                                selected_profile.name,
+                            )
+
+                if not connected:
+                    raise RuntimeError(
+                        f"Failed to connect to VPN after {max_retries} attempts."
                     )
-                    current_prompt = eval_result.reason
 
-            else:
-                log.error(
-                    "[%s] Failed to get an approved response after %d attempts",
-                    state_name,
-                    settings.eval_max_attempts,
+            elif state_name == "VERIFY_PUBLIC_IP":
+                if "public_ip" not in state.metadata:
+                    raise RuntimeError("Public IP not available after VPN connect")
+
+            elif state_name == "MAIL_BOOTSTRAP":
+                from automation.browser import get_browser
+
+                if driver is None:
+                    driver = get_browser(proxy_url=state.metadata.get("proxy"))
+                email = tempmail.get_temp_mail(driver)
+                username = tempmail.generate_username()
+                verify_url = tempmail.build_verify_url(
+                    settings.base_token, email, username
                 )
-                # We could raise here or just let it continue to the next cycle
-                # raise RuntimeError(f"{state_name} failed after max attempts")
+                state.email = email
+                state.username = username
+                state.metadata["verify_url"] = verify_url
 
-        elif state_name == "FINALIZE":
-            state.metadata["keep_open"] = "true" if args.keep_open else "false"
+                auth_zai.open_verify_resend(driver, verify_url)
 
-        log.info("[%s] Done", state_name)
+            elif state_name == "SAVE_CREDENTIALS":
+                from automation.browser import get_browser
 
-        if idx >= last_idx:
-            log.info("Reached requested stage=%s at state=%s", args.stage, state_name)
-            break
+                if not state.email or not state.username:
+                    raise RuntimeError("Cannot save credentials without email/username")
+                if driver is None:
+                    driver = get_browser(proxy_url=state.metadata.get("proxy"))
 
-    if driver is not None and not args.keep_open and not args.open:
-        try:
-            driver.quit()
-        except Exception as e:
-            log.warning("Failed to quit browser gracefully: %s", e)
+                # Retry loading cleantempmail in case of VPN/SOCKS drops
+                for load_attempt in range(3):
+                    try:
+                        driver.get("https://cleantempmail.com")
+                        if (
+                            "ERR_SOCKS_CONNECTION_FAILED" in driver.page_source
+                            or "ERR_CONNECTION_CLOSED" in driver.page_source
+                        ):
+                            raise Exception(
+                                "Browser rendered a network error page instead of cleantempmail"
+                            )
+                        break
+                    except Exception as e:
+                        if load_attempt == 2:
+                            log.error(
+                                "[SAVE_CREDENTIALS] Failed to load cleantempmail.com after 3 attempts: %s",
+                                e,
+                            )
+                            raise RuntimeError(
+                                f"VPN or Proxy dropped connection to cleantempmail: {e}"
+                            )
+                        log.warning(
+                            "[SAVE_CREDENTIALS] Error loading cleantempmail.com, retrying... (%s)",
+                            e,
+                        )
+                        time.sleep(3)
+
+                # Wait for email to arrive and click verify
+                try:
+                    registered = auth_zai.poll_inbox_and_verify(
+                        driver, password=state.email
+                    )
+                except Exception as e:
+                    log.error("[SAVE_CREDENTIALS] Verification failed: %s", e)
+                    # We continue to the next state (or the next run if handled appropriately)
+                    # We might just want to raise it so the run restarts from scratch
+                    raise RuntimeError(f"Email verification failed: {e}")
+
+                entry = {
+                    **registered,
+                    "run_id": state.run_id,
+                    "vpn_profile": state.metadata.get("vpn_profile"),
+                    "public_ip": state.metadata.get("public_ip"),
+                    "status": "registered",
+                    "preview_urls": state.preview_urls,
+                }
+                storage.upsert_credential(settings.credentials_path, entry)
+
+            elif state_name in (
+                "CHAT_CYCLE_ONE",
+                "CHAT_CYCLE_TWO",
+                "CHAT_CYCLE_THREE",
+                "CHAT_PARALLEL_GENERATE",
+            ):
+                from automation.browser import get_browser
+
+                if driver is None:
+                    driver = get_browser(proxy_url=state.metadata.get("proxy"))
+
+                full_prompt = (settings.prompts_dir / "full_prompt.txt").read_text(
+                    encoding="utf-8"
+                )
+
+                current_prompt = full_prompt
+
+                if state_name == "CHAT_PARALLEL_GENERATE":
+                    for cycle in range(args.cycles):
+                        log.info(
+                            "[%s] Starting cycle %d/%d with %d parallel tabs...",
+                            state_name,
+                            cycle + 1,
+                            args.cycles,
+                            args.parallel,
+                        )
+
+                        original_window = driver.current_window_handle
+                        windows = [original_window]
+                        driver.switch_to.window(original_window)
+                        if cycle > 0:
+                            driver.get("https://chat.z.ai/")
+                            time.sleep(2)
+
+                        for _ in range(args.parallel - 1):
+                            try:
+                                driver.execute_script(
+                                    "window.open('https://chat.z.ai/', '_blank');"
+                                )
+                                time.sleep(2)
+                                windows.append(driver.window_handles[-1])
+                            except Exception as e:
+                                log.warning("Failed to open parallel tab: %s", e)
+
+                        finished_tabs = set()
+                        for i, window in enumerate(windows):
+                            try:
+                                driver.switch_to.window(window)
+                                chat.ensure_agent_mode(driver, settings.js_dir)
+                                log.info(
+                                    "[%s] Attempting generation in tab %d (Cycle %d)...",
+                                    state_name,
+                                    i + 1,
+                                    cycle + 1,
+                                )
+                                if not chat.start_prompt(driver, current_prompt):
+                                    log.warning(
+                                        "[%s] Failed to start prompt in tab %d.",
+                                        state_name,
+                                        i + 1,
+                                    )
+                                    finished_tabs.add(i)
+                            except Exception as e:
+                                log.warning(
+                                    "[%s] Setup failed for tab %d: %s",
+                                    state_name,
+                                    i + 1,
+                                    e,
+                                )
+                                finished_tabs.add(i)
+
+                        log.info(
+                            "[%s] Polling %d tabs for completion (Cycle %d)...",
+                            state_name,
+                            args.parallel,
+                            cycle + 1,
+                        )
+
+                        import automation.modules.altissia as altissia
+
+                        # finished_tabs may already have crashed setup tabs
+                        tab_attempts = {i: 1 for i in range(len(windows))}
+                        tab_elapsed_iters = {i: 0 for i in range(len(windows))}
+
+                        while len(finished_tabs) < len(windows):
+                            any_still_generating = False
+                            try:
+                                current_handles = driver.window_handles
+                            except Exception:
+                                break
+
+                            for i, window in enumerate(windows):
+                                if i in finished_tabs:
+                                    continue
+                                if window not in current_handles:
+                                    finished_tabs.add(i)
+                                    continue
+
+                                tab_elapsed_iters[i] += 1
+                                # 8 minutes = 480 seconds = 96 iterations of 5s
+                                if tab_elapsed_iters[i] > 96:
+                                    if tab_attempts[i] < 3:
+                                        log.warning(
+                                            "[%s] Tab %d timed out after 8 minutes. Retrying prompt...",
+                                            state_name,
+                                            i + 1,
+                                        )
+                                        tab_attempts[i] += 1
+                                        tab_elapsed_iters[i] = 0
+                                        try:
+                                            driver.switch_to.window(window)
+                                            driver.get("https://chat.z.ai/")
+                                            time.sleep(2)
+                                            chat.ensure_agent_mode(
+                                                driver, settings.js_dir
+                                            )
+                                            chat.start_prompt(driver, current_prompt)
+                                        except Exception as e:
+                                            log.warning(
+                                                "[%s] Error restarting prompt in tab %d: %s",
+                                                state_name,
+                                                i + 1,
+                                                e,
+                                            )
+                                        any_still_generating = True
+                                        continue
+                                    else:
+                                        log.warning(
+                                            "[%s] Tab %d timed out after multiple attempts. Giving up.",
+                                            state_name,
+                                            i + 1,
+                                        )
+                                        finished_tabs.add(i)
+                                        try:
+                                            if (
+                                                len(driver.window_handles) > 1
+                                                and driver.current_window_handle
+                                                != original_window
+                                            ):
+                                                driver.close()
+                                        except Exception:
+                                            pass
+                                        continue
+
+                                try:
+                                    driver.switch_to.window(window)
+                                    status, result = chat.check_generation_status(
+                                        driver
+                                    )
+                                except Exception as e:
+                                    log.warning(
+                                        "[%s] Error checking tab %d: %s",
+                                        state_name,
+                                        i + 1,
+                                        e,
+                                    )
+                                    err_str = str(e).lower()
+                                    if (
+                                        "invalid session id" in err_str
+                                        or "tab crashed" in err_str
+                                        or "no such window" in err_str
+                                        or "target window already closed" in err_str
+                                    ):
+                                        log.warning(
+                                            "[%s] Tab %d is dead. Marking as finished.",
+                                            state_name,
+                                            i + 1,
+                                        )
+                                        finished_tabs.add(i)
+                                        continue
+                                    any_still_generating = True
+                                    continue
+
+                                if status == "GENERATING":
+                                    any_still_generating = True
+                                elif status == "FINISHED" and result:
+                                    log.info(
+                                        "[%s] Tab %d finished generating!",
+                                        state_name,
+                                        i + 1,
+                                    )
+                                    finished_tabs.add(i)
+                                    extracted = extractor.extract_response(
+                                        result.response_html, result.response_text
+                                    )
+                                    eval_result = evaluator_groq.evaluate_response(
+                                        extracted.html, extracted.text
+                                    )
+                                    if eval_result.approved:
+                                        preview_url = chat.to_preview_url(
+                                            result.chat_url
+                                        )
+                                        if preview_url not in state.preview_urls:
+                                            state.preview_urls.append(preview_url)
+                                            log.info(
+                                                "[%s] Approved in tab %d! URL: %s",
+                                                state_name,
+                                                i + 1,
+                                                preview_url,
+                                            )
+                                            if state.email:
+                                                storage.upsert_credential(
+                                                    settings.credentials_path,
+                                                    {
+                                                        "email": state.email,
+                                                        "username": state.username,
+                                                        "preview_urls": state.preview_urls,
+                                                        "status": "completed",
+                                                        "run_id": state.run_id,
+                                                    },
+                                                )
+                                            try:
+                                                altissia.append_and_push_links(
+                                                    [preview_url],
+                                                    use_git=getattr(args, "git", False),
+                                                )
+                                                log.info(
+                                                    "[%s] Saved preview link to altissiabooster repo.",
+                                                    state_name,
+                                                )
+                                            except Exception as e:
+                                                log.error(
+                                                    "Failed to push to altissiabooster: %s",
+                                                    e,
+                                                )
+
+                                    try:
+                                        if (
+                                            len(driver.window_handles) > 1
+                                            and driver.current_window_handle
+                                            != original_window
+                                        ):
+                                            driver.close()
+                                    except Exception:
+                                        pass
+                                elif status in ("ERROR", "SANDBOX_LIMIT"):
+                                    log.warning(
+                                        "[%s] Tab %d hit %s. Closing it.",
+                                        state_name,
+                                        i + 1,
+                                        status,
+                                    )
+                                    finished_tabs.add(i)
+                                    try:
+                                        if (
+                                            len(driver.window_handles) > 1
+                                            and driver.current_window_handle
+                                            != original_window
+                                        ):
+                                            driver.close()
+                                    except Exception:
+                                        pass
+
+                            if not any_still_generating and len(finished_tabs) == len(
+                                windows
+                            ):
+                                break
+                            time.sleep(5)
+
+                        try:
+                            if driver.window_handles:
+                                # Aggressively close any tab that isn't the original to free RAM
+                                for handle in driver.window_handles:
+                                    if handle != original_window:
+                                        try:
+                                            driver.switch_to.window(handle)
+                                            driver.close()
+                                        except:
+                                            pass
+
+                                driver.switch_to.window(original_window)
+                                # Navigate to a blank page to force Chrome to flush DOM memory from the previous cycle
+                                driver.get("about:blank")
+                                time.sleep(2)
+                        except Exception:
+                            pass
+                else:
+                    chat.ensure_agent_mode(driver, settings.js_dir)
+                    for attempt in range(settings.eval_max_attempts):
+                        log.info(
+                            "[%s] Attempt %d with prompt length %d",
+                            state_name,
+                            attempt + 1,
+                            len(current_prompt),
+                        )
+
+                        if not chat.start_prompt(driver, current_prompt):
+                            log.warning(
+                                "[%s] Failed to start prompt (input not found).",
+                                state_name,
+                            )
+                            break
+
+                        status = "GENERATING"
+                        result = None
+                        for _ in range(60):
+                            status, result = chat.check_generation_status(driver)
+                            if status in ("FINISHED", "ERROR", "SANDBOX_LIMIT"):
+                                break
+                            time.sleep(5)
+
+                        if status == "SANDBOX_LIMIT":
+                            log.warning(
+                                "[%s] Sandbox limit reached, retrying...", state_name
+                            )
+                            continue
+
+                        if status != "FINISHED" or not result:
+                            log.warning(
+                                "[%s] Generation failed or timed out: %s",
+                                state_name,
+                                status,
+                            )
+                            break
+
+                        extracted = extractor.extract_response(
+                            result.response_html,
+                            result.response_text,
+                        )
+
+                        eval_result = evaluator_groq.evaluate_response(
+                            extracted.html, extracted.text
+                        )
+                        if eval_result.approved:
+                            preview_url = chat.to_preview_url(result.chat_url)
+                            state.preview_urls.append(preview_url)
+                            log.info(
+                                "[%s] Approved! Preview URL: %s",
+                                state_name,
+                                preview_url,
+                            )
+
+                            if state.email:
+                                storage.upsert_credential(
+                                    settings.credentials_path,
+                                    {
+                                        "email": state.email,
+                                        "username": state.username,
+                                        "preview_urls": state.preview_urls,
+                                        "status": "completed",
+                                        "run_id": state.run_id,
+                                    },
+                                )
+                            break
+                        else:
+                            log.warning(
+                                "[%s] Attempt %d rejected: %s",
+                                state_name,
+                                attempt + 1,
+                                eval_result.reason,
+                            )
+                            current_prompt = (
+                                eval_result.repair_prompt or "Please continue."
+                            )
+
+                    else:
+                        log.error(
+                            "[%s] Failed to get an approved response after %d attempts",
+                            state_name,
+                            settings.eval_max_attempts,
+                        )
+                    # We could raise here or just let it continue to the next cycle
+                    # raise RuntimeError(f"{state_name} failed after max attempts")
+
+            elif state_name == "FINALIZE":
+                state.metadata["keep_open"] = "true" if args.keep_open else "false"
+
+            log.info("[%s] Done", state_name)
+
+            if idx >= last_idx:
+                log.info(
+                    "Reached requested stage=%s at state=%s", args.stage, state_name
+                )
+                break
+
+    finally:
+        vpn.cleanup(state.metadata)
+        if (
+            getattr(args, "gh", False)
+            and "gh_display" in locals()
+            and locals()["gh_display"]
+        ):
+            locals()["gh_display"].stop()
+        if driver is not None and not args.keep_open and not args.open:
+            try:
+                driver.quit()
+            except Exception as e:
+                log.warning("Failed to quit browser gracefully: %s", e)
 
     if not args.keep_open and not args.open:
         vpn.cleanup(state.metadata)
@@ -291,10 +693,29 @@ def run() -> int:
 
     if state.preview_urls:
         log.info(
-            "Pushing %d accumulated preview urls to altissiabooster...",
+            "Saving %d accumulated preview urls to credentials...",
             len(state.preview_urls),
         )
-        altissia.append_and_push_links(state.preview_urls)
+
+        if state.email:
+            storage.upsert_credential(
+                settings.credentials_path,
+                {
+                    "email": state.email,
+                    "username": state.username,
+                    "preview_urls": state.preview_urls,
+                    "status": "completed",
+                    "run_id": state.run_id,
+                },
+            )
+
+        log.info(
+            "Pushing %d accumulated preview urls to altissiabooster repo...",
+            len(state.preview_urls),
+        )
+        altissia.append_and_push_links(
+            state.preview_urls, use_git=getattr(args, "git", False)
+        )
 
     vpn.cleanup(state.metadata)
     return 0
