@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 data/openvpn/profiles/
 .env
+automation/data/run_state.json
+automation/data/openvpn/auth.txt
+*.log
+.DS_Store
