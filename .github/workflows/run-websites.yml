@@ -1,0 +1,46 @@
+name: Run Website Opener (Ping Links)
+
+on:
+  # Run every 30 minutes, staggered from the farm
+  schedule:
+    - cron: '15,45 * * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  run-website-opener:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Install Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Puppeteer Dependencies
+      run: |
+        npm init -y
+        npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
+    
+    - name: Run Website Opener Script
+      run: |
+        node open_websites.js
+      timeout-minutes: 30
+    
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: error-logs
+        path: |
+          *.log

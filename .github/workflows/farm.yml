@@ -1,59 +1,48 @@
-name: Z.ai Automation Farm
+name: Z.AI Farm Automation (Generate Links)
 
 on:
+  # Run every 30 minutes
   schedule:
-    - cron: '*/30 * * * *' # Run every 30 minutes (48 times a day)
+    - cron: '*/30 * * * *'
+  # Allow manual trigger
   workflow_dispatch:
 
 jobs:
-  automation-farm:
+  run-farm:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Run 10 concurrent threads simultaneously
-        runner: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    
+    permissions:
+      contents: write # Needed so the script can push links.json to the repo
+
     steps:
-      - name: Checkout main repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Need full history to push commits back
 
-      - name: Checkout altissiabooster repository
-        uses: actions/checkout@v4
-        with:
-          repository: 'alanwaivy10/altissiabooster' # Replace with actual org/repo if different
-          path: '/mnt/vault/repos/altissiabooster'
-          token: ${{ secrets.ALTISSIA_PAT_1 }} # Ensure this secret exists in your repo settings
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
+    - name: Install System Dependencies (Chrome & Xvfb)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb google-chrome-stable
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb google-chrome-stable chromium-chromedriver openvpn curl procps jq
-          pip install -r requirements.txt
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      - name: Configure OpenVPN Credentials
-        run: |
-          mkdir -p /tmp
-          echo "vpn" > /tmp/dummy_auth.txt
-          echo "vpn" >> /tmp/dummy_auth.txt
-
-      - name: Run Z.ai Automation (--monos)
-        env:
-          ALTISSIA_DIR: '/mnt/vault/repos/altissiabooster'
-          OPENVPN_PROFILES_DIR: '${{ github.workspace }}/automation/data/openvpn/profiles'
-          GIT_USER_EMAIL: 'bot@zai-automation.local'
-          GIT_USER_NAME: 'ZAI Bot'
-          DISPLAY: ':99'
-        run: |
-          # Start Xvfb (virtual display for Chrome)
-          Xvfb :99 -screen 0 1920x1080x24 &
-          sleep 3
-          
-          # Run the orchestration script with --monos (1 tab sequentially, 3 times) and auto-git push
-          python3 automation/main.py --monos --git
+    - name: Run Automation Farm (Raw / Monos)
+      env:
+        # Pass GitHub token to Git for pushing
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Set up git auth for pushing
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # Run farm script with virtual display
+        export DISPLAY=:99
+        xvfb-run -a python -m automation.main --stage full --monos --raw --git
