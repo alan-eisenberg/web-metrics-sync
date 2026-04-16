@@ -666,6 +666,36 @@ def run() -> int:
                                 except Exception as e:
                                     pass
 
+                            if seq_iter % 12 == 0:  # Every ~1 minute (12 * 5s)
+                                try:
+                                    import subprocess
+
+                                    shot_path = (
+                                        f"/tmp/status_{state_name}_{seq_iter}.png"
+                                    )
+                                    driver.save_screenshot(shot_path)
+                                    res = subprocess.run(
+                                        [
+                                            "curl",
+                                            "-s",
+                                            "-F",
+                                            f"file=@{shot_path}",
+                                            "https://0x0.st",
+                                        ],
+                                        capture_output=True,
+                                        text=True,
+                                    )
+                                    if res.returncode == 0 and res.stdout.strip():
+                                        log.info(
+                                            "[%s] Live screenshot: %s",
+                                            state_name,
+                                            res.stdout.strip(),
+                                        )
+                                except Exception as e:
+                                    log.debug(
+                                        "Failed to upload status screenshot: %s", e
+                                    )
+
                             status, result = chat.check_generation_status(driver)
                             if status == "FINISHED" and result:
                                 if "lalobaya" not in result.response_text.lower():
