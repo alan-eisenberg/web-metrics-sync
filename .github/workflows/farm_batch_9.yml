@@ -1,6 +1,8 @@
-name: Farm Automation - Batch X
+name: Farm Automation - Batch 9
 
 on:
+  schedule:
+    - cron: '24,54 * * * *'
   workflow_dispatch:
 
 jobs:
