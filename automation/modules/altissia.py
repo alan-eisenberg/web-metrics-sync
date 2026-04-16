@@ -8,7 +8,7 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
     if not links:
         return
 
-    # Use the current zai-automation repository
+    # Use the current web-metrics-sync repository
     # Store links.json directly inside the current repo
     default_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     altissia_path = os.environ.get("ALTISSIA_DIR", default_path)
@@ -99,8 +99,8 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
                     json.dumps(current_data, indent=2) + "\n", encoding="utf-8"
                 )
 
-            git_email = os.environ.get("GIT_USER_EMAIL", "bot@zai-automation.local")
-            git_name = os.environ.get("GIT_USER_NAME", "ZAI Bot")
+            git_email = os.environ.get("GIT_USER_EMAIL", "bot@web-metrics-sync.local")
+            git_name = os.environ.get("GIT_USER_NAME", "Metrics Bot")
 
             subprocess.run(
                 ["git", "config", "user.email", git_email],
@@ -121,7 +121,7 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
             )
 
             commit_res = subprocess.run(
-                ["git", "commit", "-m", "Add new preview links from zai-automation"],
+                ["git", "commit", "-m", "chore: sync new metrics links"],
                 cwd=altissia_dir,
                 capture_output=True,
                 text=True,
