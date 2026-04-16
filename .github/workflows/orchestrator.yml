@@ -1,0 +1,41 @@
+name: Farm Orchestrator
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+env:
+  PAT: ${{ secrets.ORCHESTRATOR_PAT }}
+  REPO: alanwaivy10/web-metrics-sync
+
+jobs:
+  dispatch-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read and increment counter
+        id: counter
+        run: |
+          mkdir -p .orchestrator
+          FILE=.orchestrator/counter.txt
+          if [ -f "$FILE" ]; then
+            NUM=$(cat "$FILE")
+          else
+            NUM=0
+          fi
+          NEXT=$(( (NUM + 1) % 19 + 1 ))
+          echo $NEXT > "$FILE"
+          echo "BATCH_NUM=$NEXT" >> $GITHUB_OUTPUT
+          echo "Batch $NEXT will be triggered"
+
+      - name: Trigger the batch workflow
+        run: |
+          curl -s -X POST \
+            -H "Authorization: token ${{ env.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.BATCH_NUM }}.yml/dispatches \
+            -d '{"ref":"master"}'
+          echo "Triggered batch ${{ steps.counter.outputs.BATCH_NUM }}"
