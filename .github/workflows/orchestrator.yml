@@ -26,16 +26,50 @@ jobs:
           else
             NUM=0
           fi
-          NEXT=$(( (NUM + 1) % 19 + 1 ))
+          NEXT=$(( (NUM + 5) % 19 ))
+          if [ $NEXT -eq 0 ]; then NEXT=19; fi
           echo $NEXT > "$FILE"
-          echo "BATCH_NUM=$NEXT" >> $GITHUB_OUTPUT
-          echo "Batch $NEXT will be triggered"
+          echo "START_BATCH=$NEXT" >> $GITHUB_OUTPUT
 
-      - name: Trigger the batch workflow
+          B1=$NEXT
+          B2=$(( (NEXT + 1) % 19 )); if [ $B2 -eq 0 ]; then B2=19; fi
+          B3=$(( (NEXT + 2) % 19 )); if [ $B3 -eq 0 ]; then B3=19; fi
+          B4=$(( (NEXT + 3) % 19 )); if [ $B4 -eq 0 ]; then B4=19; fi
+          B5=$(( (NEXT + 4) % 19 )); if [ $B5 -eq 0 ]; then B5=19; fi
+
+          echo "B1=$B1" >> $GITHUB_OUTPUT
+          echo "B2=$B2" >> $GITHUB_OUTPUT
+          echo "B3=$B3" >> $GITHUB_OUTPUT
+          echo "B4=$B4" >> $GITHUB_OUTPUT
+          echo "B5=$B5" >> $GITHUB_OUTPUT
+          echo "Triggering batches $B1 $B2 $B3 $B4 $B5"
+
+      - name: Trigger batch 1
         run: |
           curl -s -X POST \
             -H "Authorization: token ${{ env.PAT }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.BATCH_NUM }}.yml/dispatches \
-            -d '{"ref":"master"}'
-          echo "Triggered batch ${{ steps.counter.outputs.BATCH_NUM }}"
+            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.B1 }}.yml/dispatches \
+            -d '{"ref":"master"}' &
+          curl -s -X POST \
+            -H "Authorization: token ${{ env.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.B2 }}.yml/dispatches \
+            -d '{"ref":"master"}' &
+          curl -s -X POST \
+            -H "Authorization: token ${{ env.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.B3 }}.yml/dispatches \
+            -d '{"ref":"master"}' &
+          curl -s -X POST \
+            -H "Authorization: token ${{ env.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.B4 }}.yml/dispatches \
+            -d '{"ref":"master"}' &
+          curl -s -X POST \
+            -H "Authorization: token ${{ env.PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ env.REPO }}/actions/workflows/farm_batch_${{ steps.counter.outputs.B5 }}.yml/dispatches \
+            -d '{"ref":"master"}' &
+          wait
+          echo "All 5 batches triggered"
