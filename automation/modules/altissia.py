@@ -59,6 +59,13 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
 
     for attempt in range(max_retries):
         try:
+            # Revert local changes to avoid unstaged changes error during pull
+            subprocess.run(
+                ["git", "checkout", "--", "automation/data/links.json"],
+                cwd=altissia_dir,
+                capture_output=True,
+            )
+
             # Sync with remote first
             pull_res = subprocess.run(
                 ["git", "pull", "--rebase"],

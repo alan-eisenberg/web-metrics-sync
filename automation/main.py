@@ -633,11 +633,6 @@ def run() -> int:
                                         e,
                                     )
                                 time.sleep(1)
-                                if len(driver.window_handles) > 0:
-                                    new_window = driver.window_handles[-1]
-                                    driver.close()  # close old original window
-                                    driver.switch_to.window(new_window)
-                                time.sleep(1)
                         except Exception as e:
                             log.warning("Error cleaning up at end of cycle: %s", e)
                 else:
