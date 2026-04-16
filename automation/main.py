@@ -66,7 +66,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip VPN implementation entirely",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--monos",
+        action="store_true",
+        help="Run strictly 1 tab sequentially for 3 cycles",
+    )
+    args = parser.parse_args()
+
+    if getattr(args, "monos", False):
+        args.parallel = 1
+        args.cycles = 3
+
+    return args
 
 
 def _touch_data_files(base_dir: Path) -> None:
@@ -316,7 +327,20 @@ def run() -> int:
                         windows = [original_window]
                         driver.switch_to.window(original_window)
                         if cycle > 0:
-                            driver.get("https://chat.z.ai/")
+                            try:
+                                driver.set_page_load_timeout(30)
+                                driver.get("https://chat.z.ai/")
+                            except Exception as e:
+                                log.warning(
+                                    "[%s] Timeout navigating to chat.z.ai on cycle %d: %s",
+                                    state_name,
+                                    cycle + 1,
+                                    e,
+                                )
+                                try:
+                                    driver.execute_script("window.stop();")
+                                except Exception:
+                                    pass
                             time.sleep(2)
 
                         for _ in range(args.parallel - 1):
@@ -589,15 +613,33 @@ def run() -> int:
                                         try:
                                             driver.switch_to.window(handle)
                                             driver.close()
-                                        except:
+                                        except Exception:
                                             pass
 
                                 driver.switch_to.window(original_window)
-                                # Navigate to a blank page to force Chrome to flush DOM memory from the previous cycle
-                                driver.get("about:blank")
-                                time.sleep(2)
-                        except Exception:
-                            pass
+                                # Open a fresh tab for the next cycle to clear renderer state
+                                try:
+                                    driver.execute_script(
+                                        "window.open('about:blank', '_blank');"
+                                    )
+                                    time.sleep(1)
+                                    if len(driver.window_handles) > 1:
+                                        new_window = driver.window_handles[-1]
+                                        driver.close()  # close old original window
+                                        driver.switch_to.window(new_window)
+                                except Exception as e:
+                                    log.warning(
+                                        "Soft warning: failed to cycle windows cleanly: %s",
+                                        e,
+                                    )
+                                time.sleep(1)
+                                if len(driver.window_handles) > 0:
+                                    new_window = driver.window_handles[-1]
+                                    driver.close()  # close old original window
+                                    driver.switch_to.window(new_window)
+                                time.sleep(1)
+                        except Exception as e:
+                            log.warning("Error cleaning up at end of cycle: %s", e)
                 else:
                     chat.ensure_agent_mode(driver, settings.js_dir)
                     for attempt in range(settings.eval_max_attempts):

@@ -14,18 +14,37 @@ def open_verify_resend(driver, verify_url: str):
     print("[*] Waiting for the resend button to appear...")
 
     try:
-        # Based on the exact class list provided by the user
-        resend_btn = wait.until(
-            EC.element_to_be_clickable(
-                (
-                    By.CSS_SELECTOR,
-                    "button.buttonGradient, button[class*='buttonGradient']",
-                )
-            )
-        )
+        target_btn = None
+        # We must wait until a button actually containing 'resend' OR having the 'buttonGradient' class appears.
+        for _ in range(30):
+            buttons = driver.find_elements(By.TAG_NAME, "button")
+            for b in buttons:
+                text = b.text.lower() if b.text else ""
+                class_attr = b.get_attribute("class") or ""
+                if "resend" in text or "buttongradient" in class_attr.lower():
+                    target_btn = b
+                    break
+
+            if target_btn and target_btn.is_displayed() and target_btn.is_enabled():
+                break
+            target_btn = None
+            time.sleep(1)
+
+        if not target_btn:
+            raise Exception("Resend button never appeared in DOM or became visible")
+
         close_consent_popups(driver)
         time.sleep(1)  # Give a small buffer after popups close
-        resend_btn.click()
+        driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", target_btn
+        )
+        time.sleep(0.5)
+
+        try:
+            target_btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", target_btn)
+
         print("[*] Successfully clicked the resend button.")
         time.sleep(2)
     except Exception as e:
@@ -42,37 +61,151 @@ def open_verify_resend(driver, verify_url: str):
 
 def poll_inbox_and_verify(driver, password: str):
     wait = WebDriverWait(driver, 15)
-    email_found = False
+    target_email_element = None
 
-    # Wait for inbox item
-    for _ in range(30):
+    # Wait for inbox item containing "Z.ai" or "Verify"
+    for i in range(30):
         close_consent_popups(driver)
         try:
-            inbox = driver.find_elements(By.CSS_SELECTOR, ".email-item")
-            if inbox:
-                email_found = True
+            inbox_items = driver.find_elements(By.CSS_SELECTOR, ".email-item")
+            for item in inbox_items:
+                text = item.text.lower() if item.text else ""
+                if "z.ai" in text or "verify" in text:
+                    target_email_element = item
+                    break
+
+            if target_email_element:
                 break
         except:
             pass
+
+        # Refresh the page every 6 seconds to force inbox update
+        if i > 0 and i % 3 == 0:
+            print(
+                f"[*] Z.ai Verification email not found yet, refreshing CleanTempMail ({i * 2}s)..."
+            )
+            try:
+                driver.refresh()
+                if "ERR_SOCKS_CONNECTION_FAILED" in driver.page_source or "ERR_PROXY_CONNECTION_FAILED" in driver.page_source or "ERR_CONNECTION_CLOSED" in driver.page_source:
+                    print("[!] Network dropped. Attempting to reload cleantempmail.com...")
+                    time.sleep(2)
+                    driver.get("https://cleantempmail.com")
+            except Exception as e:
+                print(f"[!] Error refreshing page: {e}")
+                
+            time.sleep(1)  # wait a moment after refresh
+
         time.sleep(2)
 
-    if not email_found:
-        raise RuntimeError("Verification email did not arrive in 60s")
+    if not target_email_element:
+        raise RuntimeError("Z.ai Verification email did not arrive in 60s")
 
     # Click email
-    first_email = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, ".email-item"))
-    )
-    first_email.click()
-    time.sleep(2)
+    print("[*] Opening verification email...")
 
-    # Find verify link in iframe
-    iframe = driver.find_element(By.CSS_SELECTOR, "iframe")
-    driver.switch_to.frame(iframe)
+    try:
+        email_id = target_email_element.get_attribute("data-email-id")
+        if email_id:
+            driver.execute_script(f"toggleEmailDetail('{email_id}')")
+        else:
+            raise Exception("No data-email-id attribute found")
+    except Exception as e:
+        print(f"[!] Failed to open email via JS: {e}")
+        try:
+            # Fallback to clicking wrapper
+            wrapper = target_email_element.find_element(
+                By.CSS_SELECTOR, ".email-content-wrapper"
+            )
+            driver.execute_script("arguments[0].click();", wrapper)
+        except:
+            try:
+                target_email_element.click()
+            except:
+                driver.execute_script("arguments[0].click();", target_email_element)
+    
+    # Wait 2 seconds and check if the email actually expanded (it should have class 'expanded')
     time.sleep(2)
+    classes = target_email_element.get_attribute("class") or ""
+    if "expanded" not in classes.lower():
+        print("[!] Email did not seem to expand properly, forcing a click again...")
+        try:
+            driver.execute_script("arguments[0].click();", target_email_element)
+        except:
+            pass
 
-    link = driver.find_element(By.CSS_SELECTOR, "a[href*='verify_email']")
-    href = link.get_attribute("href")
+    time.sleep(4)
+
+    # Find verify link
+    print("[*] Waiting for email content to load...")
+    href = None
+    for attempt in range(15):
+        time.sleep(2)
+
+        # First check main content
+        links = driver.find_elements(By.CSS_SELECTOR, "a")
+        for a in links:
+            h = a.get_attribute("href")
+            if h and (
+                "verify" in h.lower() or "auth" in h.lower() or "chat.z.ai" in h.lower()
+            ):
+                href = h
+                break
+
+        if href:
+            print(f"[*] Found verification link in main content: {href}")
+            break
+
+        print("[*] Link not in main content, checking iframes...")
+        # Re-fetch the page source inside the loop in case the network took a moment
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(1)
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+        print(f"[*] Found {len(iframes)} iframes")
+
+        for i, iframe in enumerate(iframes):
+            try:
+                driver.switch_to.frame(iframe)
+                links = driver.find_elements(By.CSS_SELECTOR, "a")
+                for a in links:
+                    h = a.get_attribute("href")
+                    if h:
+                        print(f"[*] iframe {i} link: {h}")
+                    if h and (
+                        "verify" in h.lower()
+                        or "auth" in h.lower()
+                        or "chat.z.ai" in h.lower()
+                    ):
+                        href = h
+                        break
+                if href:
+                    print(f"[*] Found verification link in iframe {i}: {href}")
+                    break
+            except Exception as e:
+                print(f"[*] Error inspecting iframe {i}: {e}")
+            finally:
+                driver.switch_to.default_content()
+
+        if href:
+            break
+
+    if not href:
+        driver.save_screenshot(
+            "/home/alan/zai-automation/artifacts/screenshots/iframe_fail.png"
+        )
+        print(
+            "[!] Saved screenshot of failure to /home/alan/zai-automation/artifacts/screenshots/iframe_fail.png"
+        )
+        
+        # Dump the outer HTML so we can see what cleantempmail's DOM actually looked like when it failed
+        try:
+            with open("/home/alan/zai-automation/artifacts/screenshots/iframe_fail_dom.html", "w") as f:
+                f.write(driver.page_source)
+            print("[!] Dumped DOM to iframe_fail_dom.html")
+        except:
+            pass
+            
+        raise RuntimeError("Could not find verification link anywhere")
+
     driver.switch_to.default_content()
 
     # Close existing z.ai tab
@@ -84,11 +217,8 @@ def poll_inbox_and_verify(driver, password: str):
 
     # Open verify link
     driver.switch_to.window(driver.window_handles[0])
-    iframe = driver.find_element(By.CSS_SELECTOR, "iframe")
-    driver.switch_to.frame(iframe)
-    link = driver.find_element(By.CSS_SELECTOR, "a[href*='verify_email']")
-    link.click()
-    driver.switch_to.default_content()
+    print(f"[*] Navigating to {href}")
+    driver.execute_script(f"window.open('{href}', '_blank');")
     time.sleep(5)
 
     # Find new z.ai tab
@@ -99,9 +229,18 @@ def poll_inbox_and_verify(driver, password: str):
 
     # Fill password
     close_consent_popups(driver)
-    wait.until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "#password"))
-    ).send_keys(password)
+    try:
+        wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "#password"))
+        ).send_keys(password)
+    except Exception as e:
+        print(f"[!] Error finding password field. Perhaps it was already verified or the page didn't load properly: {e}")
+        try:
+            print("[*] URL:", driver.current_url)
+            driver.save_screenshot("/home/alan/zai-automation/artifacts/screenshots/password_fail.png")
+        except:
+            pass
+        raise RuntimeError("Failed to verify email, password field not found.")
     driver.find_element(By.CSS_SELECTOR, "#confirmPassword").send_keys(password)
 
     # Submit

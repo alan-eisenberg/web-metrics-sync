@@ -14,6 +14,25 @@ def get_browser(proxy_url=None):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-infobars")
 
+    # Extra flags to prevent crashing inside sandbox environments / heavy resource usage
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--js-flags=--expose-gc --max-old-space-size=256")
+    options.add_argument("--disable-site-isolation-trials")
+    options.add_argument("--disable-logging")
+    options.add_argument("--disable-features=Translate")
+    options.add_argument("--disable-features=OptimizationHints")
+    # Tell Chrome to heavily limit its cache size to stop it from bloating memory over time
+    options.add_argument("--disk-cache-size=1048576")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--force-device-scale-factor=1")
+    options.add_argument("--disable-gpu-compositing")
+
+    # Add aggressive connection flags to prevent ERR_CONNECTION_CLOSED under heavy VPN packet loss
+    options.add_argument("--disable-features=NetworkService")
+    options.add_argument("--disable-browser-side-navigation")
+    options.page_load_strategy = "normal"
+
     if proxy_url:
         options.add_argument(f"--proxy-server={proxy_url}")
 

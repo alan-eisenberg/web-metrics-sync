@@ -8,13 +8,17 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
     if not links:
         return
 
-    altissia_path = os.environ.get("ALTISSIA_DIR", "/mnt/vault/repos/altissiabooster")
+    # Use the current zai-automation repository
+    # Store links.json directly inside the current repo
+    default_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    altissia_path = os.environ.get("ALTISSIA_DIR", default_path)
     altissia_dir = Path(altissia_path)
-    links_file = altissia_dir / "links.json"
+    links_file = altissia_dir / "automation" / "data" / "links.json"
 
+    # Ensure the directory exists and create an empty list if no file exists
+    links_file.parent.mkdir(parents=True, exist_ok=True)
     if not links_file.exists():
-        print(f"[!] Warning: {links_file} does not exist.")
-        return
+        links_file.write_text("[]\n", encoding="utf-8")
 
     try:
         data = json.loads(links_file.read_text(encoding="utf-8"))
@@ -32,7 +36,7 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
             added = True
 
     if not added:
-        print("[*] No new links to add to altissiabooster.")
+        print("[*] No new links to add to repository.")
         return
 
     # Write back to links.json
@@ -103,7 +107,7 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
             )
 
             subprocess.run(
-                ["git", "add", "links.json"],
+                ["git", "add", "automation/data/links.json"],
                 cwd=altissia_dir,
                 check=True,
                 capture_output=True,
@@ -117,15 +121,13 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
             )
             # It's possible there is nothing to commit if changed == False and we just rebased
 
-            print(f"[*] Pushing to altissiabooster (Attempt {attempt + 1})...")
+            print(f"[*] Pushing to origin (Attempt {attempt + 1})...")
             push_res = subprocess.run(
                 ["git", "push"], cwd=altissia_dir, capture_output=True, text=True
             )
 
             if push_res.returncode == 0:
-                print(
-                    "[*] Successfully pushed links.json to altissiabooster repository."
-                )
+                print("[*] Successfully pushed links.json to repository.")
                 break
             else:
                 print(f"[!] Failed to push. Output:\n{push_res.stderr}")
@@ -146,4 +148,4 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
                 print(f"[*] Retrying in {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
             else:
-                print("[!] Max retries reached. Could not push to altissiabooster.")
+                print("[!] Max retries reached. Could not push to repository.")

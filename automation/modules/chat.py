@@ -333,12 +333,39 @@ def handle_sandbox_popup(driver) -> bool:
         return False
 
 
+def handle_peak_hours_popup(driver) -> bool:
+    """Check for the 'Currently in peak hours' popup and return True if found."""
+    try:
+        popups = driver.find_elements(
+            By.XPATH, "//div[contains(text(), 'Currently in peak hours')]"
+        )
+        if not popups:
+            return False
+
+        print(
+            "[*] Detected 'Currently in peak hours' popup! We hit a GLM-5 hard limit."
+        )
+        # Click the cancel button to close it
+        cancel_btns = driver.find_elements(
+            By.XPATH, "//span[contains(text(), 'Cancel')]/ancestor::button"
+        )
+        if cancel_btns:
+            driver.execute_script("arguments[0].click();", cancel_btns[0])
+            time.sleep(1)
+        return True
+    except Exception as e:
+        print(f"[!] Error handling peak hours popup: {e}")
+        return False
+
+
 def check_generation_status(driver) -> tuple[str, ChatResult | None]:
     try:
-        # 0. Check and clear any Limit Sandbox Concurrency popups
-        if handle_sandbox_popup(driver):
-            # We hit a limit and cleared it. Let the main loop know we hit the sandbox limit so it can retry
-            return "SANDBOX_LIMIT", None
+        # 0. Check and clear any Limit popups
+        handle_sandbox_popup(driver)
+
+        # 0.5 Check for peak hours
+        if handle_peak_hours_popup(driver):
+            return "PEAK_HOURS", None
 
         # 1. Check if error/regenerate is visible
         if click_regenerate(driver):
@@ -358,6 +385,22 @@ def check_generation_status(driver) -> tuple[str, ChatResult | None]:
         return "GENERATING", None
 
     try:
+        # AGGRESSIVE INDICATOR CHECK: If "lalobaya" is in the AI's response text, generation has completed.
+        # This bypasses any UI lags with disabled buttons or missing copy buttons.
+        containers = driver.find_elements(
+            By.CSS_SELECTOR,
+            "#response-content-container, .response-content, .markdown-prose, div[class*='prose']",
+        )
+        if containers:
+            response_text = containers[-1].text.lower()
+            if "lalobaya" in response_text:
+                response_html = containers[-1].get_attribute("innerHTML")
+                return "FINISHED", ChatResult(
+                    chat_url=driver.current_url,
+                    response_html=response_html,
+                    response_text=containers[-1].text,
+                )
+
         # 2. Check if the send button is disabled (meaning it's actively generating)
         send_btns = driver.find_elements(
             By.CSS_SELECTOR,
@@ -387,13 +430,38 @@ def check_generation_status(driver) -> tuple[str, ChatResult | None]:
         # We also need the response text to check for lalobaya
         containers = driver.find_elements(
             By.CSS_SELECTOR,
-            "#response-content-container, .response-content, .markdown-prose",
+            "#response-content-container, .response-content, .markdown-prose, div[class*='prose']",
         )
 
         response_text = ""
         if containers:
             # Get the text of the last container (the most recent response)
             response_text = containers[-1].text
+
+        # If the copy button is present and the send button is enabled, it's finished!
+        if copy_btns and not is_generating:
+            return "FINISHED", ChatResult(
+                chat_url=driver.current_url,
+                response_html=containers[-1].get_attribute("innerHTML")
+                if containers
+                else "",
+                response_text=response_text,
+            )
+
+        response_text = ""
+        if containers:
+            # Get the text of the last container (the most recent response)
+            response_text = containers[-1].text
+
+        # AGGRESSIVE LALOBAYA CHECK: If "lalobaya" is in the text, it definitely finished generating!
+        if "lalobaya" in response_text.lower():
+            return "FINISHED", ChatResult(
+                chat_url=driver.current_url,
+                response_html=containers[-1].get_attribute("innerHTML")
+                if containers
+                else "",
+                response_text=response_text,
+            )
 
         # If the copy button is present and the send button is enabled, it's finished!
         if copy_btns and not is_generating:
