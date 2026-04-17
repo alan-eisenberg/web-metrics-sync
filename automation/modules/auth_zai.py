@@ -86,13 +86,19 @@ def poll_inbox_and_verify(driver, password: str):
             )
             try:
                 driver.refresh()
-                if "ERR_SOCKS_CONNECTION_FAILED" in driver.page_source or "ERR_PROXY_CONNECTION_FAILED" in driver.page_source or "ERR_CONNECTION_CLOSED" in driver.page_source:
-                    print("[!] Network dropped. Attempting to reload cleantempmail.com...")
+                if (
+                    "ERR_SOCKS_CONNECTION_FAILED" in driver.page_source
+                    or "ERR_PROXY_CONNECTION_FAILED" in driver.page_source
+                    or "ERR_CONNECTION_CLOSED" in driver.page_source
+                ):
+                    print(
+                        "[!] Network dropped. Attempting to reload cleantempmail.com..."
+                    )
                     time.sleep(2)
                     driver.get("https://cleantempmail.com")
             except Exception as e:
                 print(f"[!] Error refreshing page: {e}")
-                
+
             time.sleep(1)  # wait a moment after refresh
 
         time.sleep(2)
@@ -122,7 +128,7 @@ def poll_inbox_and_verify(driver, password: str):
                 target_email_element.click()
             except:
                 driver.execute_script("arguments[0].click();", target_email_element)
-    
+
     # Wait 2 seconds and check if the email actually expanded (it should have class 'expanded')
     time.sleep(2)
     classes = target_email_element.get_attribute("class") or ""
@@ -195,15 +201,18 @@ def poll_inbox_and_verify(driver, password: str):
         print(
             "[!] Saved screenshot of failure to /home/alan/zai-automation/artifacts/screenshots/iframe_fail.png"
         )
-        
+
         # Dump the outer HTML so we can see what cleantempmail's DOM actually looked like when it failed
         try:
-            with open("/home/alan/zai-automation/artifacts/screenshots/iframe_fail_dom.html", "w") as f:
+            with open(
+                "/home/alan/zai-automation/artifacts/screenshots/iframe_fail_dom.html",
+                "w",
+            ) as f:
                 f.write(driver.page_source)
             print("[!] Dumped DOM to iframe_fail_dom.html")
         except:
             pass
-            
+
         raise RuntimeError("Could not find verification link anywhere")
 
     driver.switch_to.default_content()
@@ -234,10 +243,14 @@ def poll_inbox_and_verify(driver, password: str):
             EC.presence_of_element_located((By.CSS_SELECTOR, "#password"))
         ).send_keys(password)
     except Exception as e:
-        print(f"[!] Error finding password field. Perhaps it was already verified or the page didn't load properly: {e}")
+        print(
+            f"[!] Error finding password field. Perhaps it was already verified or the page didn't load properly: {e}"
+        )
         try:
             print("[*] URL:", driver.current_url)
-            driver.save_screenshot("/home/alan/zai-automation/artifacts/screenshots/password_fail.png")
+            driver.save_screenshot(
+                "/home/alan/zai-automation/artifacts/screenshots/password_fail.png"
+            )
         except:
             pass
         raise RuntimeError("Failed to verify email, password field not found.")
@@ -254,4 +267,29 @@ def poll_inbox_and_verify(driver, password: str):
         driver.find_element(By.CSS_SELECTOR, "button.buttonGradient").click()
 
     time.sleep(5)
-    return {"registration": "ok", "password": password}
+
+    # Harvest cookies and localStorage right after registration (while still logged in)
+    cookies = driver.get_cookies()
+    local_storage = {}
+    try:
+        local_storage = driver.execute_script(
+            "var ls = {}; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); ls[k] = localStorage.getItem(k); } return ls;"
+        )
+    except:
+        pass
+
+    session_storage = {}
+    try:
+        session_storage = driver.execute_script(
+            "var ss = {}; for (var i = 0; i < sessionStorage.length; i++) { var k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); } return ss;"
+        )
+    except:
+        pass
+
+    return {
+        "registration": "ok",
+        "password": password,
+        "cookies": cookies,
+        "local_storage": local_storage,
+        "session_storage": session_storage,
+    }

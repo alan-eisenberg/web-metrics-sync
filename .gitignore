@@ -7,3 +7,4 @@ automation/data/run_state.json
 automation/data/openvpn/auth.txt
 *.log
 .DS_Store
+debug_login.py
