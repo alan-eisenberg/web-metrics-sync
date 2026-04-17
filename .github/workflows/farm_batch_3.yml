@@ -1,7 +1,7 @@
 name: Farm Automation - Batch 3
 
 on:
-#  workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
   run-farm:
