@@ -1,8 +1,6 @@
 name: Farm Automation - Batch 7
 
 on:
-  schedule:
-    - cron: '18,48 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -34,7 +32,7 @@ jobs:
 
     - name: Run Automation Farm (Raw / Monos)
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKE7: ${{ secrets.GITHUB_TOKEN }}
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"

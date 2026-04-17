@@ -1,21 +1,10 @@
-name: Fast Ping New Links
+name: Workflow
 
 on:
   workflow_dispatch:
 
 jobs:
-  ping:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Ping new links
-        run: node open_websites.js
+      - run: echo "Ready"
