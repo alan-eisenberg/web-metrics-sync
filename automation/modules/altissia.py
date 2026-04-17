@@ -3,6 +3,7 @@ import subprocess
 import os
 import time
 import random
+import shutil
 from pathlib import Path
 
 
@@ -23,6 +24,7 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
     altissia_path = os.environ.get("ALTISSIA_DIR", default_path)
     altissia_dir = Path(altissia_path)
     links_file = altissia_dir / "automation" / "data" / "links.json"
+    credentials_file = altissia_dir / "automation" / "data" / "credentials.json"
     pid = os.getpid()
 
     links_file.parent.mkdir(parents=True, exist_ok=True)
@@ -86,9 +88,17 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
         print("[!] Could not acquire git lock. Another workflow is pushing. Skipping.")
         return
 
+    tmp_creds = None
     try:
+        if credentials_file.exists():
+            tmp_creds = credentials_file.with_suffix(".json.tmp")
+            shutil.copy(credentials_file, tmp_creds)
+
         run_git(["git", "fetch", "origin", "master"], cwd=altissia_dir)
         run_git(["git", "reset", "--hard", "origin/master"], cwd=altissia_dir)
+
+        if tmp_creds and tmp_creds.exists():
+            shutil.move(str(tmp_creds), credentials_file)
 
         try:
             data = json.loads(links_file.read_text(encoding="utf-8"))
@@ -115,21 +125,33 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
         run_git(["git", "config", "user.email", git_email], cwd=altissia_dir)
         run_git(["git", "config", "user.name", git_name], cwd=altissia_dir)
         run_git(
-            ["git", "add", "automation/data/links.json"],
+            [
+                "git",
+                "add",
+                "automation/data/links.json",
+                "automation/data/credentials.json",
+            ],
             cwd=altissia_dir,
             capture=False,
         )
         run_git(
-            ["git", "commit", "-m", f"chore: sync {len(links)} new links (pid {pid})"],
+            [
+                "git",
+                "commit",
+                "-m",
+                f"chore: sync {len(links)} new links and credentials (pid {pid})",
+            ],
             cwd=altissia_dir,
         )
 
         push_res = run_git(["git", "push", "origin", "master"], cwd=altissia_dir)
         if push_res.returncode == 0:
-            print(f"[*] Successfully pushed {len(links)} links.")
+            print(f"[*] Successfully pushed {len(links)} links and credentials.")
         else:
             print(f"[!] Push failed: {push_res.stderr.strip()}")
 
     finally:
+        if tmp_creds and tmp_creds.exists():
+            tmp_creds.unlink()
         run_git(["git", "push", "origin", "--delete", LOCK_BRANCH], cwd=altissia_dir)
         print(f"[*] Lock released (pid {pid})")
