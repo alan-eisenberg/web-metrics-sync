@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 LOCK_BRANCH = "refs/heads/.lock"
-LOCK_TIMEOUT = 120
+LOCK_TIMEOUT = 300
 
 
 def run_git(cmd, cwd, capture=True):
@@ -82,7 +82,7 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
                 f"[*] Lock held by another runner, waiting... ({lock_content.stdout.strip()})"
             )
 
-        time.sleep(2)
+        time.sleep(1)
 
     if not lock_acquired:
         print("[!] Could not acquire git lock. Another workflow is pushing. Skipping.")
@@ -116,6 +116,14 @@ def append_and_push_links(links: list[str], use_git: bool = False) -> None:
         if not added:
             print("[*] No new links to add.")
             return
+
+        run_git(["git", "fetch", "origin", "master"], cwd=altissia_dir)
+        run_git(["git", "reset", "--hard", "origin/master"], cwd=altissia_dir)
+
+        data = json.loads(links_file.read_text(encoding="utf-8"))
+        for link in links:
+            if link not in data:
+                data.append(link)
 
         links_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
