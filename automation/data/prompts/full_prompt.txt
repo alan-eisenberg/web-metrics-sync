@@ -1,7 +1,7 @@
 1. CLONE AND START:
 Clone the repository and run the pre-built sandbox deployment script:
 git clone https://github.com/alan-eisenberg/webT
-cd webT && bash ./sandbox-start.sh
+cd web1 && bash ./sandbox-start.sh
 
 2. VERIFY DEPLOYMENT:
 Wait 30 seconds for the build to finish. Run `curl -s http://localhost:3000`
@@ -10,7 +10,7 @@ to `/api/terminal` with {"action":"init"} to get a sessionId, then POST
 {"sessionId":"<id>","command":"pwd"} and ensure it returns 200 OK.
 
 3. CREATE AUTONOMOUS RECOVERY AI AGENT CRON (every 5 minutes):
-Set up a cron job that runs the health monitor at /home/z/webT/health-monitor.sh.
+Set up a cron job that runs the health monitor at /home/z/web1/health-monitor.sh.
 This script checks BOTH syshealth and webterminal, and auto-restarts whichever
 is down. The cron agent prompt must include strict rules to never touch
 /home/z/dock/ or the syshealth binary.
