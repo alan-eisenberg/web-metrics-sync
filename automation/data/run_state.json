@@ -1,11 +1,13 @@
 {
-  "run_id": "a4879e4a-a624-48d3-8c78-7322b66a3d9e",
-  "state": "MAIL_BOOTSTRAP",
+  "run_id": "6d4273de-fc33-472e-93c5-2b66f28d815d",
+  "state": "CHAT_PARALLEL_GENERATE",
   "retries": {},
-  "email": null,
-  "username": null,
+  "email": "marianelson35@web.lifetreechurch.co.uk",
+  "username": "alphagolden97",
   "current_prompt": 0,
   "preview_urls": [],
   "last_error": null,
-  "metadata": {}
+  "metadata": {
+    "verify_url": "https://chat.z.ai/auth/verify_email?token=60182646-1be4-414c-b697-99543c8cc974&email=marianelson35@web.lifetreechurch.co.uk&username=alphagolden97&language=en"
+  }
 }
