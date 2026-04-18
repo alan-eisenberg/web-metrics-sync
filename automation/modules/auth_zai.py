@@ -266,7 +266,7 @@ def poll_inbox_and_verify(driver, password: str):
     except:
         driver.find_element(By.CSS_SELECTOR, "button.buttonGradient").click()
 
-    time.sleep(5)
+    time.sleep(8)  # Wait longer for page to settle
 
     # Harvest cookies and localStorage right after registration (while still logged in)
     cookies = driver.get_cookies()
@@ -275,7 +275,7 @@ def poll_inbox_and_verify(driver, password: str):
     local_storage = {}
     try:
         local_storage = driver.execute_script(
-            "var ls = {}; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); ls[k] = localStorage.getItem(k); return ls;"
+            "var ls = {}; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); ls[k] = localStorage.getItem(k); } return ls;"
         )
         print(f"[*] Harvested {len(local_storage)} localStorage keys")
     except Exception as e:
@@ -284,19 +284,11 @@ def poll_inbox_and_verify(driver, password: str):
     session_storage = {}
     try:
         session_storage = driver.execute_script(
-            "var ss = {}; for (var i = 0; i < sessionStorage.length; i++) { var k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); return ss;"
+            "var ss = {}; for (var i = 0; i < sessionStorage.length; i++) { var k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); } return ss;"
         )
         print(f"[*] Harvested {len(session_storage)} sessionStorage keys")
     except Exception as e:
         print(f"[!] sessionStorage harvest failed: {e}")
-
-    session_storage = {}
-    try:
-        session_storage = driver.execute_script(
-            "var ss = {}; for (var i = 0; i < sessionStorage.length; i++) { var k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); } return ss;"
-        )
-    except:
-        pass
 
     return {
         "registration": "ok",
