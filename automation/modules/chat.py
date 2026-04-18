@@ -372,42 +372,36 @@ def check_generation_status(driver) -> tuple[str, ChatResult | None]:
         if click_regenerate(driver):
             return "ERROR", None
     except Exception as e:
-        if (
-            "stale element reference" in str(e).lower()
-            or "staleelementreference" in str(e).lower()
-        ):
+        if "stale element" in str(e).lower():
             return "GENERATING", None
-        if (
-            "invalid session id" in str(e).lower()
-            or "tab crashed" in str(e).lower()
-            or "no such window" in str(e).lower()
-        ):
+        if "invalid session" in str(e).lower() or "tab crashed" in str(e).lower():
             raise e
         return "GENERATING", None
 
-try:
+    try:
+        # Find response containers
         # Find response containers
         containers = driver.find_elements(
             By.CSS_SELECTOR,
             "#response-content-container, .response-content, .markdown-prose, div[class*='prose'], div[role='presentation'], .markdown-body",
         )
-        
+
         # Get response text
         response_text = ""
         if containers:
             response_text = containers[-1].text.strip()
-        
+
         # Find the submit/end button
         send_btns = driver.find_elements(
             By.CSS_SELECTOR,
             "button[aria-label*='Submit'], button[aria-label*='Send'], button[type='submit'], button[aria-label='End Turn'], button[aria-label*='end turn']",
         )
-        
+
         # Check if button is DISABLED (meaning AI finished)
         if send_btns:
             btn = send_btns[-1]
             is_disabled = not btn.is_enabled() or btn.get_attribute("disabled")
-            
+
             if is_disabled and response_text:
                 # Button disabled + response = FINISHED
                 # Check for lalobaya indicator
@@ -417,7 +411,7 @@ try:
                     response_text=response_text,
                     needs_continue=not has_lalobaya,  # Only need continue if NO lalobaya
                 )
-        
+
         # Has response text + no disabled button = still generating
         return "GENERATING", None
 
