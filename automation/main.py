@@ -294,7 +294,13 @@ def run() -> int:
                     "status": "registered",
                     "preview_urls": state.preview_urls,
                 }
-                storage.upsert_credential(settings.credentials_path, entry)
+                # Make sure cookies/local_storage/session_storage are saved if present
+                if state.email:
+                    storage.upsert_credential(settings.credentials_path, entry)
+                    log.info(
+                        "[SAVE_CREDENTIALS] Saved credentials with session data for %s",
+                        state.email,
+                    )
 
             elif state_name in (
                 "CHAT_CYCLE_ONE",
@@ -547,15 +553,50 @@ def run() -> int:
                                                 preview_url,
                                             )
                                             if state.email:
+                                                # Load existing credentials to preserve session data
+                                                existing = storage.load_credentials(
+                                                    settings.credentials_path
+                                                )
+                                                existing_entry = next(
+                                                    (
+                                                        c
+                                                        for c in existing
+                                                        if c.get("email") == state.email
+                                                    ),
+                                                    {},
+                                                )
+                                                entry = {
+                                                    "email": state.email,
+                                                    "username": state.username,
+                                                    "preview_urls": state.preview_urls,
+                                                    "status": "completed",
+                                                    "run_id": state.run_id,
+                                                    "vpn_profile": state.metadata.get(
+                                                        "vpn_profile"
+                                                    ),
+                                                    "public_ip": state.metadata.get(
+                                                        "public_ip"
+                                                    ),
+                                                }
+                                                # Preserve any saved session data
+                                                if existing_entry.get("cookies"):
+                                                    entry["cookies"] = existing_entry[
+                                                        "cookies"
+                                                    ]
+                                                if existing_entry.get("local_storage"):
+                                                    entry["local_storage"] = (
+                                                        existing_entry["local_storage"]
+                                                    )
+                                                if existing_entry.get(
+                                                    "session_storage"
+                                                ):
+                                                    entry["session_storage"] = (
+                                                        existing_entry[
+                                                            "session_storage"
+                                                        ]
+                                                    )
                                                 storage.upsert_credential(
-                                                    settings.credentials_path,
-                                                    {
-                                                        "email": state.email,
-                                                        "username": state.username,
-                                                        "preview_urls": state.preview_urls,
-                                                        "status": "completed",
-                                                        "run_id": state.run_id,
-                                                    },
+                                                    settings.credentials_path, entry
                                                 )
                                             try:
                                                 altissia.append_and_push_links(
