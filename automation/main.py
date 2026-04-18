@@ -417,7 +417,7 @@ def run() -> int:
                                 tab_elapsed_iters[i] += 1
 
                                 # 2 minutes = 120 seconds = 24 iterations of 5s
-                                if tab_elapsed_iters[i] == 24:
+                                if tab_elapsed_iters[i] == 60:
                                     log.warning(
                                         "[%s] Tab %d generation lagged after 2 min. Refreshing to recover...",
                                         state_name,
@@ -435,7 +435,7 @@ def run() -> int:
                                     continue
 
                                 # 3 minutes = 180 seconds = 36 iterations of 5s
-                                if tab_elapsed_iters[i] > 36:
+                                if tab_elapsed_iters[i] > 360:
                                     if tab_attempts[i] < 3:
                                         log.warning(
                                             "[%s] Tab %d timed out after 3 minutes. Retrying prompt...",
