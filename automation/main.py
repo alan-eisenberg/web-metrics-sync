@@ -287,6 +287,14 @@ def run() -> int:
                     "status": "registered",
                     "preview_urls": state.preview_urls,
                 }
+                # DEBUG: Log what's in registered
+                print(f"[SAVE_CREDENTIALS] registered has: {list(registered.keys())}")
+                print(
+                    f"[SAVE_CREDENTIALS] cookies: {bool(registered.get('cookies'))} ({len(registered.get('cookies', []))} items)"
+                )
+                print(
+                    f"[SAVE_CREDENTIALS] local_storage: {bool(registered.get('local_storage'))} ({len(registered.get('local_storage', {}))} items)"
+                )
                 # Make sure cookies/local_storage/session_storage are saved if present
                 if state.email:
                     storage.upsert_credential(settings.credentials_path, entry)
