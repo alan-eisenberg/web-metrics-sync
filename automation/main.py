@@ -408,10 +408,10 @@ def run() -> int:
 
                                 tab_elapsed_iters[i] += 1
 
-                                # 5 minutes = 300 seconds = 60 iterations of 5s
-                                if tab_elapsed_iters[i] == 60:
+                                # 2 minutes = 120 seconds = 24 iterations of 5s
+                                if tab_elapsed_iters[i] == 24:
                                     log.warning(
-                                        "[%s] Tab %d generation seems lagged after 5 minutes. Refreshing page to recover...",
+                                        "[%s] Tab %d generation lagged after 2 min. Refreshing to recover...",
                                         state_name,
                                         i + 1,
                                     )
@@ -426,11 +426,11 @@ def run() -> int:
                                     any_still_generating = True
                                     continue
 
-                                # 10 minutes = 600 seconds = 120 iterations of 5s
-                                if tab_elapsed_iters[i] > 120:
+                                # 3 minutes = 180 seconds = 36 iterations of 5s
+                                if tab_elapsed_iters[i] > 36:
                                     if tab_attempts[i] < 3:
                                         log.warning(
-                                            "[%s] Tab %d timed out after 10 minutes. Retrying prompt...",
+                                            "[%s] Tab %d timed out after 3 minutes. Retrying prompt...",
                                             state_name,
                                             i + 1,
                                         )
@@ -688,10 +688,10 @@ def run() -> int:
 
                         status = "GENERATING"
                         result = None
-                        for seq_iter in range(1, 121):  # 10 minutes max
-                            if seq_iter == 60:
+                        for seq_iter in range(1, 37):  # 3 minutes max
+                            if seq_iter == 24:
                                 log.warning(
-                                    "[%s] Generation seems lagged after 5 minutes. Refreshing page to recover...",
+                                    "[%s] Generation lagged after 2 min. Refreshing page...",
                                     state_name,
                                 )
                                 try:
