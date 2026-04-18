@@ -16,8 +16,9 @@ from pathlib import Path
 @dataclass
 class ChatResult:
     chat_url: str
-    response_html: str
-    response_text: str
+    response_html: str = ""
+    response_text: str = ""
+    needs_continue: bool = False
 
 
 def wait_and_click(driver, css_selector: str, timeout: int = 15, description: str = ""):
@@ -384,87 +385,47 @@ def check_generation_status(driver) -> tuple[str, ChatResult | None]:
             raise e
         return "GENERATING", None
 
-    try:
-        # ROBUST DETECTION: Check multiple selectors for response content
-        # Look for ANY response text as indicator that something was generated
+try:
+        # Find response containers
         containers = driver.find_elements(
             By.CSS_SELECTOR,
             "#response-content-container, .response-content, .markdown-prose, div[class*='prose'], div[role='presentation'], .markdown-body",
         )
         
-        # Check if we have ANY response (even without "lalobaya")
+        # Get response text
         response_text = ""
-        response_html = ""
         if containers:
-            for c in containers[-3:]:  # Check last 3 containers
-                txt = c.text.strip()
-                if txt:
-                    response_text = txt
-                    response_html = c.get_attribute("innerHTML") or ""
-                    break
+            response_text = containers[-1].text.strip()
         
-        # PRIMARY CHECK: If we have ANY response text and send button is enabled, it's finished
-        if response_text:
-            # Check if there's a submit/send button that's enabled
-            submit_btns = driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button[aria-label='Submit'], button[aria-label*='Send']")
-            is_enabled = not submit_btns or submit_btns[-1].is_enabled()
-            
-            # Check for any stop/generate button (if present, still generating)
-            stop_btns = driver.find_elements(By.CSS_SELECTOR, "button[aria-label='Stop'], button[aria-label='Stop generating']")
-            
-            if is_enabled and not stop_btns:
-                # Has response and no active stop button = finished
-                return "FINISHED", ChatResult(
-                    chat_url=driver.current_url,
-                    response_html=response_html,
-                    response_text=response_text,
-                )
-        
-        # Also check for "lalobaya" as secondary indicator
-        if "lalobaya" in response_text.lower():
-
-        # 2. Check if the send button is disabled (meaning it's actively generating)
+        # Find the submit/end button
         send_btns = driver.find_elements(
             By.CSS_SELECTOR,
-            "button[aria-label*='end'], #send-message-button, button[type='submit']",
+            "button[aria-label*='Submit'], button[aria-label*='Send'], button[type='submit'], button[aria-label='End Turn'], button[aria-label*='end turn']",
         )
-        is_generating = False
+        
+        # Check if button is DISABLED (meaning AI finished)
         if send_btns:
-            # If the button has a disabled attribute, it's generating
             btn = send_btns[-1]
-            if (
-                not btn.is_enabled()
-                or btn.get_attribute("disabled") is not None
-                or btn.get_attribute("aria-disabled") == "true"
-            ):
-                is_generating = True
-
-        if is_generating:
-            return "GENERATING", None
-
-        # 3. Simple check: If any response text and no stop button = finished
-        if response_text:
-            stop_btns = driver.find_elements(By.CSS_SELECTOR, "button[aria-label='Stop'], button[aria-label*='Stop generating']")
-            if not stop_btns or not stop_btns[-1].is_displayed():
+            is_disabled = not btn.is_enabled() or btn.get_attribute("disabled")
+            
+            if is_disabled and response_text:
+                # Button disabled + response = FINISHED
+                # Check for lalobaya indicator
+                has_lalobaya = "lalobaya" in response_text.lower()
                 return "FINISHED", ChatResult(
                     chat_url=driver.current_url,
-                    response_html=containers[-1].get_attribute("innerHTML") if containers else "",
                     response_text=response_text,
+                    needs_continue=not has_lalobaya,  # Only need continue if NO lalobaya
                 )
-
-        # 4. Check if the generation failed to even start (Sandbox limit reached)
-        if send_btns and send_btns[-1].is_enabled() and not containers:
-            return "SANDBOX_LIMIT", None
+        
+        # Has response text + no disabled button = still generating
+        return "GENERATING", None
 
     except Exception as e:
-        if (
-            "stale element reference" in str(e).lower()
-            or "staleelementreference" in str(e).lower()
-        ):
+        if "stale element" in str(e).lower():
             return "GENERATING", None
         print(f"[!] Error checking status: {e}")
 
-    # 5. Otherwise, still generating
     return "GENERATING", None
 
 

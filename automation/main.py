@@ -503,9 +503,9 @@ def run() -> int:
                                 if status == "GENERATING":
                                     any_still_generating = True
                                 elif status == "FINISHED" and result:
-                                    if "lalobaya" not in result.response_text.lower():
+                                    if result.needs_continue:
                                         log.info(
-                                            "[%s] Tab %d finished but 'lalobaya' missing. Sending 'continue'...",
+                                            "[%s] Tab %d needs 'continue'...",
                                             state_name,
                                             i + 1,
                                         )
@@ -732,7 +732,7 @@ def run() -> int:
 
                             status, result = chat.check_generation_status(driver)
                             if status == "FINISHED" and result:
-                                if "lalobaya" not in result.response_text.lower():
+                                if result.needs_continue:
                                     log.info(
                                         "[%s] Finished but 'lalobaya' missing. Sending 'continue'...",
                                         state_name,
