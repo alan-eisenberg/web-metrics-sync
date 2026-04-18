@@ -385,21 +385,43 @@ def check_generation_status(driver) -> tuple[str, ChatResult | None]:
         return "GENERATING", None
 
     try:
-        # AGGRESSIVE INDICATOR CHECK: If "lalobaya" is in the AI's response text, generation has completed.
-        # This bypasses any UI lags with disabled buttons or missing copy buttons.
+        # ROBUST DETECTION: Check multiple selectors for response content
+        # Look for ANY response text as indicator that something was generated
         containers = driver.find_elements(
             By.CSS_SELECTOR,
-            "#response-content-container, .response-content, .markdown-prose, div[class*='prose']",
+            "#response-content-container, .response-content, .markdown-prose, div[class*='prose'], div[role='presentation'], .markdown-body",
         )
+        
+        # Check if we have ANY response (even without "lalobaya")
+        response_text = ""
+        response_html = ""
         if containers:
-            response_text = containers[-1].text.lower()
-            if "lalobaya" in response_text:
-                response_html = containers[-1].get_attribute("innerHTML")
+            for c in containers[-3:]:  # Check last 3 containers
+                txt = c.text.strip()
+                if txt:
+                    response_text = txt
+                    response_html = c.get_attribute("innerHTML") or ""
+                    break
+        
+        # PRIMARY CHECK: If we have ANY response text and send button is enabled, it's finished
+        if response_text:
+            # Check if there's a submit/send button that's enabled
+            submit_btns = driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button[aria-label='Submit'], button[aria-label*='Send']")
+            is_enabled = not submit_btns or submit_btns[-1].is_enabled()
+            
+            # Check for any stop/generate button (if present, still generating)
+            stop_btns = driver.find_elements(By.CSS_SELECTOR, "button[aria-label='Stop'], button[aria-label='Stop generating']")
+            
+            if is_enabled and not stop_btns:
+                # Has response and no active stop button = finished
                 return "FINISHED", ChatResult(
                     chat_url=driver.current_url,
                     response_html=response_html,
-                    response_text=containers[-1].text,
+                    response_text=response_text,
                 )
+        
+        # Also check for "lalobaya" as secondary indicator
+        if "lalobaya" in response_text.lower():
 
         # 2. Check if the send button is disabled (meaning it's actively generating)
         send_btns = driver.find_elements(
@@ -420,58 +442,15 @@ def check_generation_status(driver) -> tuple[str, ChatResult | None]:
         if is_generating:
             return "GENERATING", None
 
-        # 3. Check if the copy response button is visible (meaning generation finished)
-        # Using a simplified selector for the copy button to avoid escaping issues with Tailwind classes
-        copy_btns = driver.find_elements(
-            By.CSS_SELECTOR,
-            "button.copy-response-button, button[class*='copy-response-button']",
-        )
-
-        # We also need the response text to check for lalobaya
-        containers = driver.find_elements(
-            By.CSS_SELECTOR,
-            "#response-content-container, .response-content, .markdown-prose, div[class*='prose']",
-        )
-
-        response_text = ""
-        if containers:
-            # Get the text of the last container (the most recent response)
-            response_text = containers[-1].text
-
-        # If the copy button is present and the send button is enabled, it's finished!
-        if copy_btns and not is_generating:
-            return "FINISHED", ChatResult(
-                chat_url=driver.current_url,
-                response_html=containers[-1].get_attribute("innerHTML")
-                if containers
-                else "",
-                response_text=response_text,
-            )
-
-        response_text = ""
-        if containers:
-            # Get the text of the last container (the most recent response)
-            response_text = containers[-1].text
-
-        # AGGRESSIVE LALOBAYA CHECK: If "lalobaya" is in the text, it definitely finished generating!
-        if "lalobaya" in response_text.lower():
-            return "FINISHED", ChatResult(
-                chat_url=driver.current_url,
-                response_html=containers[-1].get_attribute("innerHTML")
-                if containers
-                else "",
-                response_text=response_text,
-            )
-
-        # If the copy button is present and the send button is enabled, it's finished!
-        if copy_btns and not is_generating:
-            return "FINISHED", ChatResult(
-                chat_url=driver.current_url,
-                response_html=containers[-1].get_attribute("innerHTML")
-                if containers
-                else "",
-                response_text=response_text,
-            )
+        # 3. Simple check: If any response text and no stop button = finished
+        if response_text:
+            stop_btns = driver.find_elements(By.CSS_SELECTOR, "button[aria-label='Stop'], button[aria-label*='Stop generating']")
+            if not stop_btns or not stop_btns[-1].is_displayed():
+                return "FINISHED", ChatResult(
+                    chat_url=driver.current_url,
+                    response_html=containers[-1].get_attribute("innerHTML") if containers else "",
+                    response_text=response_text,
+                )
 
         # 4. Check if the generation failed to even start (Sandbox limit reached)
         if send_btns and send_btns[-1].is_enabled() and not containers:

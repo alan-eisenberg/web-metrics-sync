@@ -1,11 +1,13 @@
 {
-  "run_id": "78e8521c-7294-4a6b-9118-3bd1358fe7cf",
-  "state": "MAIL_BOOTSTRAP",
+  "run_id": "8a45b3b0-605c-4833-9fd3-ddf9b6f4a788",
+  "state": "CHAT_PARALLEL_GENERATE",
   "retries": {},
-  "email": null,
-  "username": null,
+  "email": "rebeccaharper10@edu.gotrak.org",
+  "username": "zebraember65",
   "current_prompt": 0,
   "preview_urls": [],
   "last_error": null,
-  "metadata": {}
+  "metadata": {
+    "verify_url": "https://chat.z.ai/auth/verify_email?token=60182646-1be4-414c-b697-99543c8cc974&email=rebeccaharper10@edu.gotrak.org&username=zebraember65&language=en"
+  }
 }
